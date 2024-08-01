@@ -43,6 +43,9 @@
             TEXTURE2D(_MainTex);
             SAMPLER(sampler_MainTex);
 
+            TEXTURE2D(_SceneViewSpaceNormals);
+            SAMPLER(sampler_SceneViewSpaceNormals);
+
             CBUFFER_START(UnityPerMaterial)
                 float4 _MainTex_TexelSize;
                 float _Scale;
@@ -81,9 +84,17 @@
                 float2 topLeftUV = input.uv + float2(-_MainTex_TexelSize.x * halfScaleFloor, _MainTex_TexelSize.y * halfScaleCeil);
 
                 float3 normal0 = SampleSceneNormals(bottomLeftUV);
+                //float3 normal0 = SAMPLE_TEXTURE2D_X(_SceneViewSpaceNormals, sampler_SceneViewSpaceNormals, UnityStereoTransformScreenSpaceTex(bottomLeftUV)).xyz;
+                
                 float3 normal1 = SampleSceneNormals(topRightUV);
+                //float3 normal1 = SAMPLE_TEXTURE2D_X(_SceneViewSpaceNormals, sampler_SceneViewSpaceNormals, UnityStereoTransformScreenSpaceTex(topRightUV)).xyz;
+                
                 float3 normal2 = SampleSceneNormals(bottomRightUV);
+                //float3 normal2 = SAMPLE_TEXTURE2D_X(_SceneViewSpaceNormals, sampler_SceneViewSpaceNormals, UnityStereoTransformScreenSpaceTex(bottomRightUV)).xyz;
+                
                 float3 normal3 = SampleSceneNormals(topLeftUV);
+                //float3 normal3 = SAMPLE_TEXTURE2D_X(_SceneViewSpaceNormals, sampler_SceneViewSpaceNormals, UnityStereoTransformScreenSpaceTex(topLeftUV)).xyz;
+                
 
                 float depth0 = SampleSceneDepth(bottomLeftUV);
                 float depth1 = SampleSceneDepth(topRightUV);

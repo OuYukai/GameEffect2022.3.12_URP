@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
@@ -6,8 +7,12 @@ using UnityEngine.Rendering.Universal;
 public class ScreenSpaceOutlines : ScriptableRendererFeature
 {
     [System.Serializable]
-    private class ScreenSpaceOutlineSettings {
+    private class ScreenSpaceOutlineSettings
+    {
 
+        [Header("Layer Control")] 
+        public LayerMask outlineLayer = -1;
+        
         [Header("General Outline Settings")]
         public Color outlineColor = Color.black;
         [Range(0.0f, 20.0f)]
@@ -56,6 +61,8 @@ public class ScreenSpaceOutlines : ScriptableRendererFeature
         private RTHandle temporaryBuffer;
         
         private RendererList normalsRenderersList;
+        
+        private Matrix4x4 clipToView;
 
         public ScreenSpaceOutlinePass(RenderPassEvent renderPassEvent, LayerMask layerMask,
             ScreenSpaceOutlineSettings settings) {
@@ -65,16 +72,10 @@ public class ScreenSpaceOutlines : ScriptableRendererFeature
             screenSpaceOutlineMaterial = new Material(Shader.Find("Hidden/Outlines"));
             screenSpaceOutlineMaterial.SetColor("_Color", settings.outlineColor);
             screenSpaceOutlineMaterial.SetFloat("_Scale", settings.outlineScale);
-
             screenSpaceOutlineMaterial.SetFloat("_DepthThreshold", settings.depthThreshold);
-            //screenSpaceOutlineMaterial.SetFloat("_RobertsCrossMultiplier", settings.robertsCrossMultiplier);
-
             screenSpaceOutlineMaterial.SetFloat("_NormalThreshold", settings.normalThreshold);
-
-            //screenSpaceOutlineMaterial.SetFloat("_SteepAngleThreshold", settings.steepAngleThreshold);
-            //screenSpaceOutlineMaterial.SetFloat("_SteepAngleMultiplier", settings.steepAngleMultiplier);
             
-            filteringSettings = new FilteringSettings(RenderQueueRange.opaque, layerMask);
+            filteringSettings = new FilteringSettings(RenderQueueRange.opaque, settings.outlineLayer);
 
             shaderTagIdList = new List<ShaderTagId> {
                 new ShaderTagId("UniversalForward"),
@@ -84,6 +85,7 @@ public class ScreenSpaceOutlines : ScriptableRendererFeature
             };
 
             normalsMaterial = new Material(Shader.Find("Hidden/ViewSpaceNormals"));
+            
         }
 
         public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
@@ -97,6 +99,10 @@ public class ScreenSpaceOutlines : ScriptableRendererFeature
             
             textureDescriptor.depthBufferBits = 0;
             RenderingUtils.ReAllocateIfNeeded(ref temporaryBuffer, textureDescriptor, name: "TemporaryBuffer");
+            
+            Camera camera = renderingData.cameraData.camera;
+            Matrix4x4 projMatrix = GL.GetGPUProjectionMatrix(camera.projectionMatrix, true);
+            clipToView = projMatrix.inverse;
 
             ConfigureTarget(normals);
             ConfigureClear(ClearFlag.Color, settings.backgroundColor);
@@ -123,16 +129,25 @@ public class ScreenSpaceOutlines : ScriptableRendererFeature
             normalsRenderersList = context.CreateRendererList(ref normalsRenderersParams);
             cmd.DrawRendererList(normalsRenderersList);
 
+            // 僅為受影響的層渲染 outline
+            FilteringSettings outlineFilteringSettings = new FilteringSettings(RenderQueueRange.opaque, settings.outlineLayer);
+            DrawingSettings outlineDrawSettings = CreateDrawingSettings(shaderTagIdList, ref renderingData, renderingData.cameraData.defaultOpaqueSortFlags);
+    
+            RendererListParams outlineRenderersParams = new RendererListParams(renderingData.cullResults, outlineDrawSettings, outlineFilteringSettings);
+            RendererList outlineRenderersList = context.CreateRendererList(ref outlineRenderersParams);
+            
             // 修改 SetGlobalTexture 的調用
             cmd.SetGlobalTexture(Shader.PropertyToID("_SceneViewSpaceNormals"), normals);
             
+            cmd.SetGlobalMatrix("_ClipToView", clipToView);
+            
             using (new ProfilingScope(cmd, new ProfilingSampler("ScreenSpaceOutlines")))
             {
-                //Blitter.BlitCameraTexture(cmd, renderingData.cameraData.renderer.cameraColorTargetHandle, temporaryBuffer, screenSpaceOutlineMaterial, 0);
-                //Blitter.BlitCameraTexture(cmd, temporaryBuffer, renderingData.cameraData.renderer.cameraColorTargetHandle);
+                var source = renderingData.cameraData.renderer.cameraColorTargetHandle;
                 
-                cmd.Blit(renderingData.cameraData.renderer.cameraColorTargetHandle, temporaryBuffer, screenSpaceOutlineMaterial, 0);
-                cmd.Blit(temporaryBuffer, renderingData.cameraData.renderer.cameraColorTargetHandle);
+                cmd.Blit(source, temporaryBuffer, screenSpaceOutlineMaterial, 0);
+                cmd.DrawRendererList(outlineRenderersList);
+                cmd.Blit(temporaryBuffer, source);
             }
 
             context.ExecuteCommandBuffer(cmd);
